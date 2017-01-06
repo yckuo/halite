@@ -110,7 +110,6 @@ int main() {
                 }
 
                 
-                
                 if (dangers[STILL] > 0) {
                     // TODO: if production is 0, might as well move towards danger to kill something
                     // moves.insert({ {b, a}, STILL });
@@ -121,13 +120,13 @@ int main() {
                 unsigned char D = STILL;
 
                 vector<int> options;
-                if (angle > 0 && angle < 0.5 * pi) {
+                if (angle >= 0 && angle < 0.5 * pi) {
                     options = {NORTH, EAST};
-                } else if (angle > 0.5 * pi) {
+                } else if (angle >= 0.5 * pi) {
                     options = {NORTH, WEST};
-                } else if (angle < 0 && angle > -0.5 * pi) {
+                } else if (angle <= 0 && angle > -0.5 * pi) {
                     options = {SOUTH, EAST};
-                } else if (angle < -0.5) {
+                } else if (angle <= -0.5) {
                     options = {SOUTH, WEST};
                 } else {
                     continue;
@@ -140,7 +139,7 @@ int main() {
                 // TODO: powers not needed anymore?
                 Location outloc = presentMap.getLocation(loc, D);
                 Site outsite = presentMap.getSite(outloc);
-                if (strengths[D] >= site.strength || site.strength - strengths[D] <= 30) continue;
+                if (strengths[D] >= site.strength || site.strength - strengths[D] <= 60) continue;
 
                 if (D == STILL) continue;
                 moves.insert({ {b, a}, D });
