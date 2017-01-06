@@ -7,6 +7,8 @@
 #include <vector>
 #include <algorithm>
 #include <climits>
+#include <unordered_map>
+#include <queue>
 #include "hlt.hpp"
 #include "networking.hpp"
 using namespace std;
@@ -33,49 +35,32 @@ int main() {
 
         getFrame(presentMap);
 
-        double ca = 0, cb = 0, sumw = 0;
-        for (unsigned short a = 0; a < presentMap.height; a++) {
-            for (unsigned short b = 0; b < presentMap.width; b++) {
-                auto site = presentMap.getSite({ b, a});
-                if (site.owner != myID) continue;
-                ca += a * site.strength;
-                cb += b * site.strength;
-                sumw += site.strength;
-            }
-        }
-        ca /= sumw;
-        cb /= sumw;
-        Location center = { (unsigned short)cb, (unsigned short)ca };
-        log << "center " << center.x << ", " << center.y << endl;
-        
         for(unsigned short a = 0; a < presentMap.height; a++) {
             for(unsigned short b = 0; b < presentMap.width; b++) {
                 auto site = presentMap.getSite({ b, a });
                 if (site.owner != myID) continue;
                     
-                hlt::Location loc = { b, a };
+                Location loc = { b, a };
 
-                vector<int> dangers(5, 0), powers(5, 0), profits(5, 0), mindangers(5, INT_MAX), strengths(5, 0);
+                vector<int> dangers(5, 0), profits(5, 0), mindangers(5, INT_MAX), strengths(5, 0);
                 vector<bool> isMe(5, false);
 
                 for (int D : DIRECTIONS) {
-                    hlt::Location nloc = presentMap.getLocation(loc, D);
-                    hlt::Site nsite = presentMap.getSite(nloc);
+                    Location nloc = presentMap.getLocation(loc, D);
+                    Site nsite = presentMap.getSite(nloc);
                     isMe[D] = nsite.owner == myID;
                     strengths[D] = nsite.strength;
-                    profits[D] = nsite.production;
+                    profits[D] = nsite.production; // TODO: consider potential future profit (surrounding enemy tiles)
 
                     if (!isMe[D]) {
                         dangers[D] = nsite.strength;
                         mindangers[D] = min(mindangers[D], (int)nsite.strength);
                     }
                     for (int D2 : DIRECTIONS) {
-                        hlt::Site esite = presentMap.getSite(nloc, D2);
+                        Site esite = presentMap.getSite(nloc, D2);
                         if (esite.owner != myID) {
                             dangers[D] += esite.strength;
                             mindangers[D] = min(mindangers[D], (int)esite.strength);
-                        } else {
-                            powers[D] += esite.strength;
                         }
                     }
                 }
@@ -97,8 +82,7 @@ int main() {
                 // Next, try a neighbor site not owned by me, where we can kill someone, with the largest profit.
                 bestProfit = -1;
                 for (int D : CARDINALS) {
-                    if (isMe[D]) continue;
-                    if (mindangers[D] <= site.strength && profits[D] > bestProfit) {
+                    if (!isMe[D] && mindangers[D] <= site.strength && profits[D] > bestProfit) {
                         bestProfit = profits[D];
                         bestD = D;
                     }
@@ -109,43 +93,73 @@ int main() {
                     continue;
                 }
 
-                
-                if (dangers[STILL] > 0) {
-                    // TODO: if production is 0, might as well move towards danger to kill something
-                    // moves.insert({ {b, a}, STILL });
+                // If there is enemy near by, and we get some production where we are, why not just stay and wait for growth.
+                if (dangers[STILL] > 0 && profits[STILL] > 0) {
                     continue;
                 }
 
-                float angle = presentMap.getAngle(center, loc);
-                unsigned char D = STILL;
+                if (site.strength == 0) {
+                    continue;
+                }
 
-                vector<int> options;
-                if (angle >= 0 && angle < 0.5 * pi) {
-                    options = {NORTH, EAST};
-                } else if (angle >= 0.5 * pi) {
-                    options = {NORTH, WEST};
-                } else if (angle <= 0 && angle > -0.5 * pi) {
-                    options = {SOUTH, EAST};
-                } else if (angle <= -0.5) {
-                    options = {SOUTH, WEST};
+                // Breadth-First Search for the nearest enemy.
+                float angle;
+                unordered_map<Location, int, LocationHasher, LocationComparer> visited;
+                visited[loc] = 0;
+                queue<Location> q;
+                q.push(loc);
+                int bestProduction = -1;
+                int maxDepth = INT_MAX;
+                while (!q.empty()) {
+                    Location cur = q.front();
+                    q.pop();
+                    int depth = visited[cur];
+                    if (depth > maxDepth) {
+                        q = queue<Location>();
+                        visited.clear();
+                        break;
+                    }
+
+                    for (int D : CARDINALS) {
+                        Location nloc = presentMap.getLocation(cur, D);
+                        if (visited.count(nloc)) continue;
+
+                        Site nsite = presentMap.getSite(nloc);
+                        if (nsite.owner != myID && nsite.production > bestProduction) {
+                            // found the nearest enemy.
+                            angle = presentMap.getAngle(loc, nloc);
+                            bestProduction = nsite.production;
+                            maxDepth = depth + 1;
+                        }
+
+                        visited[nloc] = depth + 1;
+                        q.push(nloc);
+                    }
+                }
+
+                unsigned char D = STILL;
+                if (angle > 0.25 * pi && angle < 0.75 * pi) {
+                    D = NORTH;
+                } else if (angle > 0.75 * pi || angle < -0.75 * pi) {
+                    D = WEST;
+                } else if (angle > -0.75 * pi && angle < -0.25 * pi) {
+                    D = SOUTH;
+                } else if (angle < 0.25 * pi && angle > -0.25 * pi) {
+                    D = EAST;
                 } else {
                     continue;
                 }
 
-                D = options[rand()%2];
-
-                if (!isMe[D]) continue;
-
-                // TODO: powers not needed anymore?
                 Location outloc = presentMap.getLocation(loc, D);
                 Site outsite = presentMap.getSite(outloc);
-                if (strengths[D] >= site.strength || site.strength - strengths[D] <= 60) continue;
+                if (outsite.owner != myID) {
+                    moves.insert({ {b, a}, D });
+                    continue;
+                }
 
-                if (D == STILL) continue;
-                moves.insert({ {b, a}, D });
-
-
-                // moves.insert({ {b, a}, (unsigned char)bestD });
+                if (site.strength > strengths[D] && site.strength - strengths[D] > 50 || site.strength == 255 && strengths[D] != 255) {
+                    moves.insert({ {b, a}, D });
+                }
             }
         }
         log << endl;
