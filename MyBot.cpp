@@ -4,6 +4,7 @@
 #include <ctime>
 #include <time.h>
 #include <set>
+#include <unordered_map>
 #include <fstream>
 #include <vector>
 #include <algorithm>
@@ -11,6 +12,30 @@
 #include "hlt.hpp"
 #include "networking.hpp"
 using namespace std;
+
+static unsigned long hash(hlt::Location loc) {
+    return loc.x * 10000 + loc.y;
+}
+
+static bool compare(hlt::Location loc1, hlt::Location loc2) {
+    if (loc1.x != loc2.x) return loc1.x < loc2.x;
+    return loc1.y < loc2.y;
+}
+
+class Hasher {
+public:
+    size_t operator() (hlt::Location const& loc) const {
+        return loc.x * 10000 + loc.y;
+    }
+};
+
+class Comparer {
+public:
+    bool operator() (hlt::Location const& loc1, hlt::Location const& loc2) const {
+        if (loc1.x != loc2.x) return loc1.x < loc2.x;
+        return loc1.y < loc2.y;
+    }
+};
 
 int main() {
     srand(time(NULL));
@@ -24,15 +49,13 @@ int main() {
     sendInit("yckuoBot");
 
     std::set<hlt::Move> moves;
-    vector<vector<bool>> source, target;
     while(true) {
         moves.clear();
 
         getFrame(presentMap);
-        
-        source.resize(presentMap.height, vector<bool>(presentMap.width, false));
-        target.resize(presentMap.height, vector<bool>(presentMap.width, false));
 
+        unordered_map<hlt::Location, unsigned char, Hasher, Comparer> attempts;
+        
         for(unsigned short a = 0; a < presentMap.height; a++) {
             for(unsigned short b = 0; b < presentMap.width; b++) {
                 auto site = presentMap.getSite({ b, a });
@@ -50,7 +73,7 @@ int main() {
                     strengths[D] = nsite.strength;
                     profits[D] = nsite.production;
 
-                    if (isMe[D]) {
+                    if (!isMe[D]) {
                         dangers[D] = nsite.strength;
                         mindangers[D] = min(mindangers[D], (int)nsite.strength);
                     }
@@ -92,10 +115,8 @@ int main() {
                     continue;
                 }
 
-                // Next, try a neighbor site owned by me, where we can kill someone. In order to prevent two pieces from
-                // swapping locations and ending up killing nobody, we try to detect duplicate moves. If we are to move A
-                // to B, and if we see another attempt of someone else moving into A or moving out of B, then we simply reject it.
-                // First come first serve, not ideal but will improve this in V3.
+                // Next, try a neighbor site owned by me, where we can kill someone. Minimum efforts to prevent swapping
+                // positions.
                 for (int D : CARDINALS) {
                     if (!isMe[D]) continue;
                     int totalStrength = site.strength + strengths[D];
@@ -105,17 +126,18 @@ int main() {
                 }
 
                 if (bestD != STILL) {
-                    hlt::Location bestLoc = presentMap.getLocation(loc, bestD);
-                    // attempt loc to bestLoc
-                    if (target[loc.y][loc.x] || source[bestLoc.y][bestLoc.x] || target[bestLoc.y][bestLoc.x]) {
-                        bestD = STILL;
-                    } else {
-                        target[bestLoc.y][bestLoc.x] = true;
-                        source[loc.y][loc.x] = true;
-                    }
+                    attempts[loc] = bestD;
                 }
+                
 
                 moves.insert({ {b, a}, (unsigned char)bestD });
+            }
+        }
+
+        for (auto it : attempts) {
+            hlt::Location target = presentMap.getLocation(it.first, it.second);
+            if (!attempts.count(target)) {
+                //moves.insert({ {it.first, it.second} });
             }
         }
 
