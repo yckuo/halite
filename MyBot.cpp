@@ -102,63 +102,36 @@ int main() {
                     continue;
                 }
 
-                // Breadth-First Search for the nearest enemy.
-                float angle;
-                unordered_map<Location, int, LocationHasher, LocationComparer> visited;
-                visited[loc] = 0;
-                queue<Location> q;
-                q.push(loc);
-                int bestProduction = -1;
-                int maxDepth = INT_MAX;
-                while (!q.empty()) {
-                    Location cur = q.front();
-                    q.pop();
-                    int depth = visited[cur];
-                    if (depth > maxDepth) {
-                        q = queue<Location>();
-                        visited.clear();
-                        break;
+                bestD = STILL;
+                int bestDist = INT_MAX;
+                bestProfit = -1;
+                for (int D : CARDINALS) {
+                    Location nloc = loc;
+                    Site nsite = presentMap.getSite(nloc);
+                    int dist = 0;
+                    while (nsite.owner == myID && dist < presentMap.width) {
+                        nloc = presentMap.getLocation(nloc, D);
+                        nsite = presentMap.getSite(nloc);
+                        dist++;
                     }
 
-                    for (int D : CARDINALS) {
-                        Location nloc = presentMap.getLocation(cur, D);
-                        if (visited.count(nloc)) continue;
-
-                        Site nsite = presentMap.getSite(nloc);
-                        if (nsite.owner != myID && nsite.production > bestProduction) {
-                            // found the nearest enemy.
-                            angle = presentMap.getAngle(loc, nloc);
-                            bestProduction = nsite.production;
-                            maxDepth = depth + 1;
-                        }
-
-                        visited[nloc] = depth + 1;
-                        q.push(nloc);
+                    if (nsite.owner == myID) continue;
+                    if (dist < bestDist || (dist == bestDist && (nsite.production > bestProfit || (nsite.production == bestProfit && (D == NORTH || D == WEST))))) {
+                        bestDist = dist;
+                        bestProfit = nsite.production;
+                        bestD = D;
                     }
                 }
 
-                unsigned char D = STILL;
-                if (angle > 0.25 * pi && angle < 0.75 * pi) {
-                    D = NORTH;
-                } else if (angle > 0.75 * pi || angle < -0.75 * pi) {
-                    D = WEST;
-                } else if (angle > -0.75 * pi && angle < -0.25 * pi) {
-                    D = SOUTH;
-                } else if (angle < 0.25 * pi && angle > -0.25 * pi) {
-                    D = EAST;
-                } else {
-                    continue;
-                }
-
-                Location outloc = presentMap.getLocation(loc, D);
+                Location outloc = presentMap.getLocation(loc, (unsigned char)bestD);
                 Site outsite = presentMap.getSite(outloc);
                 if (outsite.owner != myID) {
-                    moves.insert({ {b, a}, D });
+                    moves.insert({ {b, a}, (unsigned char)bestD });
                     continue;
                 }
 
-                if (site.strength > strengths[D] && site.strength - strengths[D] > 50 || site.strength == 255 && strengths[D] != 255) {
-                    moves.insert({ {b, a}, D });
+                if (site.strength > strengths[bestD] && site.strength - strengths[bestD] > 50 || site.strength == 255 && strengths[bestD] != 255) {
+                    moves.insert({ {b, a}, (unsigned char)bestD });
                 }
             }
         }
