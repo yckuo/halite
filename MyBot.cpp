@@ -141,31 +141,43 @@ int main() {
                     continue;
                 }
 
-                float bestDist = 10000;
-                for (Location border : borders) {
-                    float dist = presentMap.getDistance(loc, border);
-                    bestDist = min(bestDist, dist);
-                }
-
-                vector<int> dcounts(5, 0);
-                for (Location border : borders) {
-                    float dist = presentMap.getDistance(loc, border);
-                    if (bestDist == dist) {
-                        float angle = presentMap.getAngle(loc, border);
-                        unsigned char D = angle2Direction(angle);
-                        dcounts[D]++;
-                    }
-                }
-
-
-                Location source = presources[loc];
+                // Move internal strong pieces towards the boundary
                 bestD = STILL;
+                int bestDist = INT_MAX;
                 for (int D : CARDINALS) {
-                    // add momentum
-                    if (presentMap.getLocation(source, D) == loc) {
-                        dcounts[D] ++;
+                    Location nloc = loc;
+                    Site nsite = presentMap.getSite(nloc);
+                    int dist = 0;
+                    while (nsite.owner == myID) {
+                        nloc = presentMap.getLocation(nloc, D);
+                        nsite = presentMap.getSite(nloc);
+                        if (++dist > presentMap.width) break;
                     }
-                    if (dcounts[D] > dcounts[bestD]) bestD = D;
+
+                    if (dist < bestDist || (dist == bestDist && (D == NORTH || D == WEST))) {
+                        bestDist = dist;
+                        bestD = D;
+                    }
+                }
+
+                // Diagonal
+                vector<vector<int>> diags = {{NORTH, WEST}, {WEST, SOUTH}, {SOUTH, EAST}, {EAST, NORTH}};
+                for (vector<int> diag : diags) {
+                    int dist = 0;
+                    Location nloc = loc;
+                    Site nsite = presentMap.getSite(nloc);
+                    while (nsite.owner == myID) {
+                        nloc = presentMap.getLocation(nloc, diag[0]);
+                        nloc = presentMap.getLocation(nloc, diag[1]);
+                        nsite = presentMap.getSite(nloc);
+                        dist += 2;
+                        if (dist > presentMap.width) break;
+                    }
+
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestD = diag[rand() % 2];
+                    }
                 }
 
                 if (bestD == STILL) continue;
@@ -173,10 +185,6 @@ int main() {
                 Location outloc = presentMap.getLocation(loc, (unsigned char)bestD);
 
                 Site outsite = presentMap.getSite(outloc);
-                /*if (outsite.owner != myID) {
-                    moves.insert({ {b, a}, (unsigned char)bestD });
-                    continue;
-                }*/
                 if (site.strength <= strengths[bestD]) continue;
 
                 int diff = site.strength - strengths[bestD], sum = (int)site.strength + strengths[bestD];
