@@ -10,7 +10,6 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <queue>
-#include <functional>
 #include "hlt.hpp"
 #include "networking.hpp"
 using namespace std;
@@ -34,65 +33,34 @@ unsigned char opposite(unsigned char D) {
     return STILL;
 }
 
-struct LocationP {
-    unsigned short x, y, production;
-};
-
-static bool compare(LocationP p1, LocationP p2) {
-    return p1.production < p2.production;
-}
-
 int main() { 
     srand(time(NULL));
 
     std::cout.sync_with_stdio(0);
 
     ofstream log;
-    log.open("log.txt");
+    log.open("logPrevBot.txt");
 
     unsigned char myID;
     hlt::GameMap presentMap;
     getInit(myID, presentMap);
 
-    vector<Location> localmaximas;
-    for (unsigned short a = 0; a < presentMap.height; a++) {
-        for (unsigned short b = 0; b < presentMap.width; b++) {
-            Location loc = { b, a };
-            Site site = presentMap.getSite(loc);
-            bool isLocalMaxima = true, atleastonesmaller = false;
-            for (unsigned char D : CARDINALS) {
-                Site nsite = presentMap.getSite(loc, D);
-                if (nsite.production >= site.production) {
-                    isLocalMaxima = false;
-                    break;
-                }
-                if (nsite.production < site.production) {
-                    atleastonesmaller = true;
-                }
-            }
-            if (isLocalMaxima && atleastonesmaller) {
-                localmaximas.push_back(loc);
-                log << loc.x << "," << loc.y << endl;
-            }
-        }
-    }
+    sendInit("prevBot");
 
-    sendInit("yckuoBot");
-
-    unordered_map<Location, Location, LocationHasher, LocationComparer> /*sources,*/ targets/*, presources, pretargets*/;
+    unordered_map<Location, Location, LocationHasher, LocationComparer> sources, targets, presources, pretargets;
 
     std::set<hlt::Move> moves;
     while (true) {
-//        presources = sources;
-//        pretargets = targets;
-//        sources.clear();
+        presources = sources;
+        pretargets = targets;
+        sources.clear();
         targets.clear();
 
         moves.clear();
 
         getFrame(presentMap);
 
-        // 1) Identify border and enemy pieces.
+        // Identify border and enemy pieces.
         unordered_set<Location, LocationHasher, LocationComparer> enemies, borders;
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
@@ -120,29 +88,27 @@ int main() {
             }
         }
 
-        // 2) Handle expansion using a single piece at a time. We look at each of the border pieces.
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
+                Site site = presentMap.getSite({ b, a });
+                if (site.owner != myID) continue;
+    
                 Location loc = { b, a };
-                if (!borders.count(loc)) continue;
 
-                Site site = presentMap.getSite(loc);
-                // if (site.owner != myID) continue;
-
-                vector<int> dangers(5, 0), mindangers(5, 0);
+                vector<int> dangers(5, 0), mindangers(5, INT_MAX);
 
                 for (int D : DIRECTIONS) {
                     Location nloc = presentMap.getLocation(loc, D);
                     Site nsite = presentMap.getSite(nloc);
 
                     if (nsite.owner != myID) {
-                        dangers[D] = (int)nsite.strength + nsite.production;
-                        mindangers[D] = (int)nsite.strength + nsite.production;
+                        dangers[D] = nsite.strength + nsite.production;
+                        mindangers[D] = min(mindangers[D], (int)nsite.strength + nsite.production);
                     }
                     for (int D2 : CARDINALS) {
                         Site esite = presentMap.getSite(nloc, D2);
                         if (esite.owner != myID && esite.owner != 0) {
-                            dangers[D] += (int)esite.strength + esite.production;
+                            dangers[D] += esite.strength + esite.production;
                             mindangers[D] = min(mindangers[D], (int)esite.strength + esite.production);
                         }
                     }
@@ -162,7 +128,7 @@ int main() {
                     moves.insert({loc, (unsigned char)bestD});
                     Location target = presentMap.getLocation(loc, bestD);
                     enemies.erase(target);
-                    // sources[target] = loc;
+                    sources[target] = loc;
                     targets[loc] = target;
                     continue;
                 }
@@ -183,106 +149,17 @@ int main() {
                     moves.insert({loc, (unsigned char)bestD});
                     Location target = presentMap.getLocation(loc, bestD);
                     enemies.erase(target);
-                    // sources[target] = loc;
+                    sources[target] = loc;
                     targets[loc] = target;
                     continue;
                 }
-            }
-        }
 
-        // 3) Handle expansion using multiple pieces. We look at each of the remaining enemy pieces.
-        for (unsigned short a = 0; a < presentMap.height; a++) {
-            for (unsigned short b = 0; b < presentMap.width; b++) {
-                Location loc = { b, a };
-                if (!enemies.count(loc)) continue;
-                Site site = presentMap.getSite(loc);
-
-                int sum = 0, danger = site.strength, mindanger = site.strength;
-                for (int D : CARDINALS) {
-                    Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(nloc);
-                    if (nsite.owner == myID) {
-                        if (!targets.count(nloc)) sum += nsite.strength;
-                    } else {
-                        if (nsite.owner != 0) {
-                            danger += nsite.strength;
-                            mindanger = min(mindanger, (int)nsite.strength);
-                        }
-                    }
-                }
-
-                // TODO: further optimize
-                if (sum < mindanger) continue;
-                // multi suicide mission.
-
-                for (int D : CARDINALS) {
-                    Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(nloc);
-                    if (nsite.owner == myID && !targets.count(nloc)) {
-                        moves.insert({nloc, opposite(D)});
-                        // sources[loc] = nloc;
-                        // it's actually multi sources
-                        targets[nloc] = loc;
-                    }
-                }
-            }
-        }
-
-        // 5) Look at remaining nodes. Only move internally.
-        for (unsigned short a = 0; a < presentMap.height; a++) {
-            for (unsigned short b = 0; b < presentMap.width; b++) {
-                Location loc = { b, a };
-                Site site = presentMap.getSite(loc);
-                if (site.owner != myID || targets.count(loc)) continue;
-
-                bool go = false;
-                int r1 = rand() % 100, r2 = (int)site.strength;
-                if (r1 < r2) go = true;
-                if (!go) continue;
-
-                unsigned char bestD = STILL;
-                int bestDist = INT_MAX, bestProfit = -1;
-
-                for (Location cloc : localmaximas) {
-                    Site csite = presentMap.getSite(cloc);
-                    if (csite.owner == myID) continue;
-
-                    float dist = presentMap.getDistance(loc, cloc);
-                    if (dist > bestDist) continue;
-                    if (dist == bestDist && csite.production < bestProfit) continue;
-
-                    bestDist = dist;
-                    bestProfit = csite.production;
-                }
-
-                vector<Location> candidates;
-                for (Location cloc : localmaximas) {
-                    Site csite = presentMap.getSite(cloc);
-                    if (csite.owner == myID) continue;
-                    
-                    float dist = presentMap.getDistance(loc, cloc);
-                    if (dist == bestDist && csite.production == bestProfit) {
-                        candidates.push_back(cloc);
-                    }
-                }
-
-                if (candidates.size() == 1) {
-                    float angle = presentMap.getAngle(loc, candidates[0]);
-                    bestD = angle2Direction(angle);
-                }
-
-                Location target = presentMap.getLocation(loc, bestD);
-                Site targetsite = presentMap.getSite(target);
-
-                if (bestD != STILL && targetsite.owner == myID) {
-                    moves.insert({loc, bestD});
-                    targets[loc] = target;
-                    continue;
-                }
+                // Now we look at internal pieces.
+                if (borders.count(loc)) continue;
 
                 // Move internal strong pieces towards the boundary
                 bestD = STILL;
-                bestDist = INT_MAX;
+                int bestDist = INT_MAX;
                 for (int D : CARDINALS) {
                     Location nloc = loc;
                     Site nsite = presentMap.getSite(nloc);
@@ -321,16 +198,15 @@ int main() {
 
                 if (bestD == STILL) continue;
 
-                target = presentMap.getLocation(loc, bestD);
-                targetsite = presentMap.getSite(target);
-                if (targetsite.owner != myID) continue; // only move internally
+                Location target = presentMap.getLocation(loc, (unsigned char)bestD);
+                Site targetsite = presentMap.getSite(target);
 
                 // if local production is high, less chance of flowing out; if local production is low, higher
                 // probability to flow outwards
-                /*bool go = false;
+                bool go = false;
 
                 int r1 = rand() % 100, r2 = (int)site.strength;
-                if (r1 < r2) go = true;*/
+                if (r1 < r2) go = true;
 
                 // int sum = (int)site.strength + targetsite.strength, diff = (int)site.strength - targetsite.strength;
                 // if (site.strength + site.production >= 255 && targetsite.strength < 255) {
@@ -343,14 +219,49 @@ int main() {
                 //    go = true;
                 //}
 
-                // if (!go) continue;
+                if (!go) continue;
 
                 moves.insert({ loc, (unsigned char)bestD });
-                // sources[target] = loc;
+                sources[target] = loc;
                 targets[loc] = target;
             }
         }
 
+        for (unsigned short a = 0; a < presentMap.height; a++) {
+            for (unsigned short b = 0; b < presentMap.width; b++) {
+                Location loc = { b, a };
+                Site site = presentMap.getSite(loc);
+                if (!enemies.count(loc)) continue;
+                int sum = 0, danger = site.strength, mindanger = site.strength;
+                for (int D : CARDINALS) {
+                    Location nloc = presentMap.getLocation(loc, D);
+                    Site nsite = presentMap.getSite(nloc);
+                    if (nsite.owner == myID) {
+                        if (!targets.count(nloc)) sum += nsite.strength;
+                    } else {
+                        if (nsite.owner != 0) {
+                            danger += nsite.strength;
+                            mindanger = min(mindanger, (int)nsite.strength);
+                        }
+                    }
+                }
+
+                // TODO: further optimize
+                if (sum < mindanger) continue;
+                // multi suicide mission.
+
+                for (int D : CARDINALS) {
+                    Location nloc = presentMap.getLocation(loc, D);
+                    Site nsite = presentMap.getSite(nloc);
+                    if (nsite.owner == myID && !targets.count(nloc)) {
+                        moves.insert({nloc, opposite(D)});
+                        // sources[loc] = nloc;
+                        // it's actually multi sources
+                        targets[nloc] = loc;
+                    }
+                }
+            }
+        }
 
         log << endl;
 
