@@ -205,16 +205,19 @@ int main() {
                 // probability to flow outwards
                 bool go = false;
 
-                int sum = (int)site.strength + targetsite.strength, diff = (int)site.strength - targetsite.strength;
-                if (site.strength + site.production >= 255 && targetsite.strength < 255) {
-                    go = true;
-                } else if (site.strength < 10 /*|| sum > 400*/ || diff < 20) {
-                    go = false;
-                } else {
+                int r1 = rand() % 100, r2 = (int)site.strength;
+                if (r1 < r2) go = true;
+
+                // int sum = (int)site.strength + targetsite.strength, diff = (int)site.strength - targetsite.strength;
+                // if (site.strength + site.production >= 255 && targetsite.strength < 255) {
+                //    go = true;
+                // } else if (site.strength < 10 /*|| sum > 400*/ || diff < 20) {
+                //    go = false;
+                // } else {
                     // int r = min(0, site.production - 3);
                     // if (rand() % (1 << r) == 0) go = true;
-                    go = true;
-                }
+                //    go = true;
+                //}
 
                 if (!go) continue;
 
