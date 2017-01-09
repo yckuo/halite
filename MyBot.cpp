@@ -54,27 +54,50 @@ int main() {
     hlt::GameMap presentMap;
     getInit(myID, presentMap);
 
-    vector<Location> localmaximas;
+    unordered_map<Location, vector<unsigned char>, LocationHasher, LocationComparer> flows;
+    queue<Location> q;
+
     for (unsigned short a = 0; a < presentMap.height; a++) {
         for (unsigned short b = 0; b < presentMap.width; b++) {
             Location loc = { b, a };
             Site site = presentMap.getSite(loc);
-            bool isLocalMaxima = true, atleastonesmaller = false;
             for (unsigned char D : CARDINALS) {
                 Site nsite = presentMap.getSite(loc, D);
-                if (nsite.production >= site.production) {
-                    isLocalMaxima = false;
-                    break;
-                }
-                if (nsite.production < site.production) {
-                    atleastonesmaller = true;
+                if (nsite.production > site.production) {
+                    flows[loc].push_back(D);
                 }
             }
-            if (isLocalMaxima && atleastonesmaller) {
-                localmaximas.push_back(loc);
-                log << loc.x << "," << loc.y << endl;
+            if (flows.count(loc)) {
+                q.push(loc);
             }
         }
+    }
+
+    while (!q.empty()) {
+        Location loc = q.front();
+        Site site = presentMap.getSite(loc);
+        q.pop();
+        for (unsigned char D : CARDINALS) {
+            Location nloc = presentMap.getLocation(loc, D);
+            Site nsite = presentMap.getSite(nloc);
+            if (flows.count(nloc)) continue; // TODO: optimize - no need to skip so soon
+            if (nsite.production > site.production) continue;
+            flows[nloc].push_back(opposite(D));
+            q.push(nloc);
+        }
+    }
+
+    for (auto it : flows) {
+        log << "(" << it.first.x << ", " << it.first.y << ") = ";
+        for (unsigned char D : it.second) {
+            string o = "x";
+            if (D == STILL) o = "STILL";
+            else if (D == NORTH) o = "NORTH";
+            else if (D == WEST) o = "WEST";
+            else if (D == SOUTH) o = "SOUTH";
+            else o = "EAST";
+            log << o << " ";
+        log << endl;
     }
 
     sendInit("yckuoBot");
@@ -228,7 +251,7 @@ int main() {
             }
         }
 
-        // 5) Look at remaining nodes. Only move internally.
+        // 4) Look at remaining nodes. Only move internally.
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
@@ -243,32 +266,9 @@ int main() {
                 unsigned char bestD = STILL;
                 int bestDist = INT_MAX, bestProfit = -1;
 
-                for (Location cloc : localmaximas) {
-                    Site csite = presentMap.getSite(cloc);
-                    if (csite.owner == myID) continue;
-
-                    float dist = presentMap.getDistance(loc, cloc);
-                    if (dist > bestDist) continue;
-                    if (dist == bestDist && csite.production < bestProfit) continue;
-
-                    bestDist = dist;
-                    bestProfit = csite.production;
-                }
-
-                vector<Location> candidates;
-                for (Location cloc : localmaximas) {
-                    Site csite = presentMap.getSite(cloc);
-                    if (csite.owner == myID) continue;
-                    
-                    float dist = presentMap.getDistance(loc, cloc);
-                    if (dist == bestDist && csite.production == bestProfit) {
-                        candidates.push_back(cloc);
-                    }
-                }
-
-                if (candidates.size() == 1) {
-                    float angle = presentMap.getAngle(loc, candidates[0]);
-                    bestD = angle2Direction(angle);
+                if (flows.count(loc)) {
+                    int n = flows[loc].size();
+                    bestD = flows[loc][rand() % n];
                 }
 
                 Location target = presentMap.getLocation(loc, bestD);
