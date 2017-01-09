@@ -17,6 +17,8 @@ using namespace std;
 using namespace hlt;
 
 const double pi = 3.1415926;
+GameMap presentMap;
+unsigned char myID;
 
 unsigned char angle2Direction(float angle) {
     if (angle >= 0.25 * pi && angle <= 0.75 * pi) return NORTH;
@@ -50,65 +52,62 @@ int main() {
     ofstream log;
     log.open("log.txt");
 
-    unsigned char myID;
-    hlt::GameMap presentMap;
     getInit(myID, presentMap);
 
-    unordered_map<Location, vector<unsigned char>, LocationHasher, LocationComparer> flows;
-    queue<Location> q;
-
+    unordered_set<Location, LocationHasher, LocationComparer> plateaus, nonplateaus, candidates;
     for (unsigned short a = 0; a < presentMap.height; a++) {
         for (unsigned short b = 0; b < presentMap.width; b++) {
             Location loc = { b, a };
-            Site site = presentMap.getSite(loc);
-            for (unsigned char D : CARDINALS) {
-                Site nsite = presentMap.getSite(loc, D);
-                if (nsite.production > site.production) {
-                    flows[loc].push_back(D);
+            // Site site = presentMap.getSite(loc);
+            if (plateaus.count(loc) || nonplateaus.count(loc)) continue;
+            candidates.clear();
+            queue<Location> q;
+            // flood fill
+            bool fail = false;
+            q.push(loc);
+            candidates.insert(loc);
+            while (!q.empty()) {
+                Location qloc = q.front();
+                Site qsite = presentMap.getSite(qloc);
+                q.pop();
+
+                for (unsigned char D : CARDINALS) {
+                    Location nloc = presentMap.getLocation(qloc, D);
+                    if (candidates.count(nloc)) continue;
+                    Site nsite = presentMap.getSite(nloc);
+                    if (nsite.production < qsite.production) continue;
+
+                    if (nsite.production > qsite.production) {
+                        fail = true;
+                    } else {
+                        candidates.insert(nloc);
+                        q.push(nloc);
+                    }
                 }
             }
-            if (flows.count(loc)) {
-                q.push(loc);
+
+            if (!fail) {
+                for (Location cloc : candidates) {
+                    plateaus.insert(cloc);
+                }
+            } else {
+                for (Location cloc : candidates) {
+                    nonplateaus.insert(cloc);
+                }
             }
         }
     }
 
-    while (!q.empty()) {
-        Location loc = q.front();
-        Site site = presentMap.getSite(loc);
-        q.pop();
-        for (unsigned char D : CARDINALS) {
-            Location nloc = presentMap.getLocation(loc, D);
-            Site nsite = presentMap.getSite(nloc);
-            if (flows.count(nloc)) continue; // TODO: optimize - no need to skip so soon
-            if (nsite.production > site.production) continue;
-            flows[nloc].push_back(opposite(D));
-            q.push(nloc);
-        }
-    }
-
-    for (auto it : flows) {
-        log << "(" << it.first.x << ", " << it.first.y << ") = ";
-        for (unsigned char D : it.second) {
-            string o = "x";
-            if (D == STILL) o = "STILL";
-            else if (D == NORTH) o = "NORTH";
-            else if (D == WEST) o = "WEST";
-            else if (D == SOUTH) o = "SOUTH";
-            else o = "EAST";
-            log << o << " ";
-        log << endl;
+    for (Location loc : plateaus) {
+        log << "(" << loc.x << "," << loc.y << ")" << endl;
     }
 
     sendInit("yckuoBot");
 
-    unordered_map<Location, Location, LocationHasher, LocationComparer> /*sources,*/ targets/*, presources, pretargets*/;
+    unordered_map<Location, Location, LocationHasher, LocationComparer> targets;
 
     std::set<hlt::Move> moves;
     while (true) {
-//        presources = sources;
-//        pretargets = targets;
-//        sources.clear();
         targets.clear();
 
         moves.clear();
@@ -148,9 +147,7 @@ int main() {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
                 if (!borders.count(loc)) continue;
-
                 Site site = presentMap.getSite(loc);
-                // if (site.owner != myID) continue;
 
                 vector<int> dangers(5, 0), mindangers(5, 0);
 
@@ -176,6 +173,7 @@ int main() {
                 for (int D : CARDINALS) {
                     Site nsite = presentMap.getSite(loc, D);
                     if (nsite.owner == myID || dangers[D] >= site.strength) continue;
+
                     if (nsite.production > bestProfit) {
                         bestProfit = nsite.production;
                         bestD = D;
@@ -185,7 +183,6 @@ int main() {
                     moves.insert({loc, (unsigned char)bestD});
                     Location target = presentMap.getLocation(loc, bestD);
                     enemies.erase(target);
-                    // sources[target] = loc;
                     targets[loc] = target;
                     continue;
                 }
@@ -205,8 +202,8 @@ int main() {
                 if (bestD != STILL) {
                     moves.insert({loc, (unsigned char)bestD});
                     Location target = presentMap.getLocation(loc, bestD);
-                    enemies.erase(target);
-                    // sources[target] = loc;
+
+                    enemies.erase(target); // bug - target is not necessarily the one eliminated 
                     targets[loc] = target;
                     continue;
                 }
@@ -214,6 +211,7 @@ int main() {
         }
 
         // 3) Handle expansion using multiple pieces. We look at each of the remaining enemy pieces.
+        // Multi - suicide mission
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
@@ -243,8 +241,6 @@ int main() {
                     Site nsite = presentMap.getSite(nloc);
                     if (nsite.owner == myID && !targets.count(nloc)) {
                         moves.insert({nloc, opposite(D)});
-                        // sources[loc] = nloc;
-                        // it's actually multi sources
                         targets[nloc] = loc;
                     }
                 }
@@ -255,8 +251,14 @@ int main() {
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
+                if (borders.count(loc)) continue;
+
+
                 Site site = presentMap.getSite(loc);
                 if (site.owner != myID || targets.count(loc)) continue;
+
+//              if (site.strength < site.production * 5) continue;
+
 
                 bool go = false;
                 int r1 = rand() % 100, r2 = (int)site.strength;
@@ -265,12 +267,23 @@ int main() {
 
                 unsigned char bestD = STILL;
                 int bestDist = INT_MAX, bestProfit = -1;
-
-                if (flows.count(loc)) {
-                    int n = flows[loc].size();
-                    bestD = flows[loc][rand() % n];
+/*
+                for (unsigned char D : CARDINALS) {
+                    Location nloc = presentMap.getLocation(loc, D);
+                    float dist = INT_MAX;
+                    for (Location p : plateaus) {
+                        Site psite = presentMap.getSite(p);
+                        if (psite.owner == myID) continue;
+                        dist = min(dist, presentMap.getDistance(nloc, p));
+                    }
+                    if (dist > presentMap.width/8) continue;
+                    if (dist > bestDist) continue;
+                    // TODO: compare production?
+                    if (dist == bestDist && (D == EAST || D == SOUTH)) continue;
+                    bestDist = dist;
+                    bestD = D;
                 }
-
+*/
                 Location target = presentMap.getLocation(loc, bestD);
                 Site targetsite = presentMap.getSite(target);
 
@@ -279,6 +292,7 @@ int main() {
                     targets[loc] = target;
                     continue;
                 }
+
 
                 // Move internal strong pieces towards the boundary
                 bestD = STILL;
@@ -325,32 +339,10 @@ int main() {
                 targetsite = presentMap.getSite(target);
                 if (targetsite.owner != myID) continue; // only move internally
 
-                // if local production is high, less chance of flowing out; if local production is low, higher
-                // probability to flow outwards
-                /*bool go = false;
-
-                int r1 = rand() % 100, r2 = (int)site.strength;
-                if (r1 < r2) go = true;*/
-
-                // int sum = (int)site.strength + targetsite.strength, diff = (int)site.strength - targetsite.strength;
-                // if (site.strength + site.production >= 255 && targetsite.strength < 255) {
-                //    go = true;
-                // } else if (site.strength < 10 /*|| sum > 400*/ || diff < 20) {
-                //    go = false;
-                // } else {
-                    // int r = min(0, site.production - 3);
-                    // if (rand() % (1 << r) == 0) go = true;
-                //    go = true;
-                //}
-
-                // if (!go) continue;
-
                 moves.insert({ loc, (unsigned char)bestD });
-                // sources[target] = loc;
                 targets[loc] = target;
             }
         }
-
 
         log << endl;
 
