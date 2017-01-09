@@ -54,54 +54,6 @@ int main() {
 
     getInit(myID, presentMap);
 
-    unordered_set<Location, LocationHasher, LocationComparer> plateaus, nonplateaus, candidates;
-    for (unsigned short a = 0; a < presentMap.height; a++) {
-        for (unsigned short b = 0; b < presentMap.width; b++) {
-            Location loc = { b, a };
-            // Site site = presentMap.getSite(loc);
-            if (plateaus.count(loc) || nonplateaus.count(loc)) continue;
-            candidates.clear();
-            queue<Location> q;
-            // flood fill
-            bool fail = false;
-            q.push(loc);
-            candidates.insert(loc);
-            while (!q.empty()) {
-                Location qloc = q.front();
-                Site qsite = presentMap.getSite(qloc);
-                q.pop();
-
-                for (unsigned char D : CARDINALS) {
-                    Location nloc = presentMap.getLocation(qloc, D);
-                    if (candidates.count(nloc)) continue;
-                    Site nsite = presentMap.getSite(nloc);
-                    if (nsite.production < qsite.production) continue;
-
-                    if (nsite.production > qsite.production) {
-                        fail = true;
-                    } else {
-                        candidates.insert(nloc);
-                        q.push(nloc);
-                    }
-                }
-            }
-
-            if (!fail) {
-                for (Location cloc : candidates) {
-                    plateaus.insert(cloc);
-                }
-            } else {
-                for (Location cloc : candidates) {
-                    nonplateaus.insert(cloc);
-                }
-            }
-        }
-    }
-
-    for (Location loc : plateaus) {
-        log << "(" << loc.x << "," << loc.y << ")" << endl;
-    }
-
     sendInit("yckuoBot");
 
     unordered_map<Location, Location, LocationHasher, LocationComparer> targets;
@@ -114,44 +66,25 @@ int main() {
 
         getFrame(presentMap);
 
-        // 1) Identify border and enemy pieces.
-        unordered_set<Location, LocationHasher, LocationComparer> enemies, borders;
-        for (unsigned short a = 0; a < presentMap.height; a++) {
-            for (unsigned short b = 0; b < presentMap.width; b++) {
-                Location loc = { b, a };
-                Site site = presentMap.getSite(loc);
-                if (site.owner == myID) {
-                    int count = 0;
-                    for (unsigned char D : CARDINALS) {
-                        Site nsite = presentMap.getSite(loc, D);
-                        if (nsite.owner != myID) {
-                            borders.insert(loc);
-                        }
-                    }
-                } else {
-                    int count = 0;
-                    for (unsigned char D : CARDINALS) {
-                        Site nsite = presentMap.getSite(loc, D);
-                        if (nsite.owner == myID) {
-                            if (++count >= 2) {
-                                enemies.insert(loc);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        unordered_set<Location, LocationHasher, LocationComparer> killed;
 
-        // 2) Handle expansion using a single piece at a time. We look at each of the border pieces.
+        // 1) Handle expansion using a single piece at a time. We look at each of the border pieces.
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
-                if (!borders.count(loc)) continue;
                 Site site = presentMap.getSite(loc);
+                if (site.owner != myID) continue;
+
+                bool isBorder = false;
+                for (unsigned char D : CARDINALS) {
+                    Site nsite = presentMap.getSite(loc, D);
+                    if (presentMap.getSite(loc, D).owner != myID) isBorder = true;
+                }
+                if (!isBorder) continue;
 
                 vector<int> dangers(5, 0), mindangers(5, 0);
 
-                for (int D : DIRECTIONS) {
+                for (unsigned char D : DIRECTIONS) {
                     Location nloc = presentMap.getLocation(loc, D);
                     Site nsite = presentMap.getSite(nloc);
 
@@ -169,8 +102,9 @@ int main() {
                 }
 
                 // first, find the neighbor site not owned by me, with the largest profit (could be 0), and without enemies that can kill me.
-                int bestD = STILL, bestProfit = -1;
-                for (int D : CARDINALS) {
+                unsigned char bestD = STILL;
+                int bestProfit = -1;
+                for (unsigned char D : CARDINALS) {
                     Site nsite = presentMap.getSite(loc, D);
                     if (nsite.owner == myID || dangers[D] >= site.strength) continue;
 
@@ -180,17 +114,19 @@ int main() {
                     }
                 }
                 if (bestD != STILL) {
-                    moves.insert({loc, (unsigned char)bestD});
+                    moves.insert({loc, bestD});
                     Location target = presentMap.getLocation(loc, bestD);
-                    enemies.erase(target);
+                    killed.insert(target);
                     targets[loc] = target;
                     continue;
                 }
 
+                // TODO: first combine pieces for expansion with guaranteed survival?
+
                 // Next, try a neighbor site not owned by me, where we can kill someone, with the largest profit.
                 // Individual suicide mission.
                 bestProfit = -1;
-                for (int D : CARDINALS) {
+                for (unsigned char D : CARDINALS) {
                     Site nsite = presentMap.getSite(loc, D);
                     if (nsite.owner == myID || mindangers[D] > site.strength) continue;
                     if (nsite.production > bestProfit) {
@@ -200,10 +136,9 @@ int main() {
                 }
 
                 if (bestD != STILL) {
-                    moves.insert({loc, (unsigned char)bestD});
+                    moves.insert({loc, bestD});
                     Location target = presentMap.getLocation(loc, bestD);
-
-                    enemies.erase(target); // bug - target is not necessarily the one eliminated 
+                    killed.insert(target); // BUG: not necessarily killed
                     targets[loc] = target;
                     continue;
                 }
@@ -215,13 +150,15 @@ int main() {
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
-                if (!enemies.count(loc)) continue;
+
                 Site site = presentMap.getSite(loc);
 
+                if (site.owner == myID || killed.count(loc)) continue;
+
                 int sum = 0, danger = site.strength, mindanger = site.strength;
-                for (int D : CARDINALS) {
+                for (unsigned char D : CARDINALS) {
                     Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(nloc);
+                    Site nsite = presentMap.getSite(loc, D);
                     if (nsite.owner == myID) {
                         if (!targets.count(nloc)) sum += nsite.strength;
                     } else {
@@ -236,7 +173,7 @@ int main() {
                 if (sum < mindanger) continue;
                 // multi suicide mission.
 
-                for (int D : CARDINALS) {
+                for (unsigned char D : CARDINALS) {
                     Location nloc = presentMap.getLocation(loc, D);
                     Site nsite = presentMap.getSite(nloc);
                     if (nsite.owner == myID && !targets.count(nloc)) {
@@ -251,8 +188,16 @@ int main() {
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
-                if (borders.count(loc)) continue;
 
+                bool isBorder = false;
+                for (unsigned char D : CARDINALS) {
+                    Location nloc = presentMap.getLocation(loc, D);
+                    Site nsite = presentMap.getSite(loc, D);
+                    if (nsite.owner != myID && !killed.count(nloc)) {
+                        isBorder = true;
+                    }
+                }
+                if (isBorder) continue;
 
                 Site site = presentMap.getSite(loc);
                 if (site.owner != myID || targets.count(loc)) continue;
