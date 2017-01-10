@@ -37,11 +37,11 @@ unsigned char opposite(unsigned char D) {
 }
 
 struct LocationP {
-    unsigned short x, y, production;
+    unsigned short x, y, cost;
 };
 
 static bool compare(LocationP p1, LocationP p2) {
-    return p1.production < p2.production;
+    return p1.cost < p2.cost;
 }
 
 int main() { 
@@ -212,23 +212,33 @@ int main() {
 
                 unsigned char bestD = STILL;
                 int bestDist = INT_MAX, bestProfit = -1;
-/*
-                for (unsigned char D : CARDINALS) {
-                    Location nloc = presentMap.getLocation(loc, D);
-                    float dist = INT_MAX;
-                    for (Location p : plateaus) {
-                        Site psite = presentMap.getSite(p);
-                        if (psite.owner == myID) continue;
-                        dist = min(dist, presentMap.getDistance(nloc, p));
+                
+                // Dijkstra's algorithm
+                priority_queue<LocationP, vector<LocationP>, function<bool(LocationP, LocationP)>> pq(compare);
+                unordered_map<Location, int> costs;
+                pq.push({loc.x, loc.y, 0});
+                costs[loc] = 0;
+                while (!pq.empty()) {
+                    LocationP curp = pq.top();
+                    pq.pop();
+                    Location cur = { curp.x, curp.y };
+
+                    for (unsigned char D : CARDINALS) {
+                        Location next = presentMap.getLocation(cur, D);
+                        Site nextsite = presentMap.getSite(next);
+                        int cost = nextsite.owner == myID ? 0 : nextsite.strength;
+                        cost += curp.cost + 1;
+                        if (!costs.count(next) || costs[next]) {
+                            costs[next] = cost;
+                            pq.push({next.x, next.y, cost});
+                        }
                     }
-                    if (dist > presentMap.width/8) continue;
-                    if (dist > bestDist) continue;
-                    // TODO: compare production?
-                    if (dist == bestDist && (D == EAST || D == SOUTH)) continue;
-                    bestDist = dist;
-                    bestD = D;
+
+                   
                 }
-*/
+                
+                
+                
                 Location target = presentMap.getLocation(loc, bestD);
                 Site targetsite = presentMap.getSite(target);
 
