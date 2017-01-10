@@ -25,14 +25,6 @@ unsigned char angle2Direction(float angle) {
     return STILL;
 }
 
-unsigned char opposite(unsigned char D) {
-    if (D == NORTH) return SOUTH;
-    if (D == SOUTH) return NORTH;
-    if (D == WEST) return EAST;
-    if (D == EAST) return WEST;
-    return STILL;
-}
-
 int main() { 
     srand(time(NULL));
 

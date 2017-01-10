@@ -14,8 +14,10 @@
 #include <stack>
 #include "hlt.hpp"
 #include "networking.hpp"
+#include "algorithm.hpp"
 using namespace std;
 using namespace hlt;
+using namespace algorithm;
 
 const double pi = 3.1415926;
 GameMap presentMap;
@@ -27,23 +29,6 @@ unsigned char angle2Direction(float angle) {
     if (angle <= -0.25 * pi && angle >= -0.75 * pi) return SOUTH;
     if (angle > -0.25 * pi && angle < 0.25 * pi) return EAST;
     return STILL;
-}
-
-unsigned char opposite(unsigned char D) {
-    if (D == NORTH) return SOUTH;
-    if (D == SOUTH) return NORTH;
-    if (D == WEST) return EAST;
-    if (D == EAST) return WEST;
-    return STILL;
-}
-
-struct LocationP {
-    unsigned short x, y;
-    int cost;
-};
-
-static bool compare(LocationP p1, LocationP p2) {
-    return p1.cost > p2.cost;
 }
 
 int main() { 
@@ -59,6 +44,8 @@ int main() {
     sendInit("yckuoBot");
 
     unordered_map<Location, Location, LocationHasher, LocationComparer> targets;
+
+    Search search;
 
     std::set<hlt::Move> moves;
     int frame = 0;
@@ -201,7 +188,7 @@ int main() {
                         isBorder = true;
                     }
                 }
-                if (isBorder) continue;
+                //if (isBorder) continue;
 
                 Site site = presentMap.getSite(loc);
                 if (site.owner != myID || targets.count(loc)) continue;
@@ -214,78 +201,7 @@ int main() {
                 if (r1 < r2) go = true;
                 if (!go) continue;
 
-                unsigned char bestD = STILL;
-                int bestDist = INT_MAX, bestProfit = -1;
-                
-                // Dijkstra's algorithm
-                priority_queue<LocationP, vector<LocationP>, function<bool(LocationP, LocationP)>> pq(compare);
-                unordered_map<Location, int, LocationHasher, LocationComparer> costs;
-                unordered_map<Location, unsigned char, LocationHasher, LocationComparer> crumbs;
-                pq.push({loc.x, loc.y, 0});
-                costs[loc] = 0;
-
-                Location bestTarget = loc;
-                int bestscore = -1;
-
-                int round = 0;
-                while (!pq.empty()) {
-                    LocationP curp = pq.top();
-                    pq.pop();
-                    Location cur = { curp.x, curp.y };
-                    Site cursite = presentMap.getSite(cur);
-
-                    ++round;
-                    if (curp.cost > 2000 || round > 200) break;
-                    //if (curp.cost > presentMap.width/4) break;
-                    //if (++round > 100) break;
-
-                    //float score = 0;
-                    int score = 0;
-                    if (cursite.owner != myID) {
-                        // score = (float)cursite.production / (float)curp.cost;
-                        score = cursite.production;
-                    }
-
-                    if (score > bestscore) {
-                        bestscore = score;
-                        bestTarget = cur;
-                    }
-
-                    for (unsigned char D : CARDINALS) {
-                        Location next = presentMap.getLocation(cur, D);
-                        Site nextsite = presentMap.getSite(next);
-                        int cost = curp.cost + 25;
-                        if (nextsite.owner != myID) cost += nextsite.strength;
-                        if (!costs.count(next) || costs[next] > cost) {
-                            costs[next] = cost;
-                            LocationP lp;
-                            lp.x = next.x;
-                            lp.y = next.y;
-                            lp.cost = cost;
-                            pq.push(lp);
-                            crumbs[next] = opposite(D);
-                        }
-                    }
-                }
-
-                Site bestSite = presentMap.getSite(bestTarget);
-                log << "best site from (" << loc.x << "," << loc.y << ") is (" << bestTarget.x << "," << bestTarget.y << ") with production " << (int)bestSite.production << endl;
-
-                
-                if (bestTarget.x != loc.x || bestTarget.y != loc.y) {
-                    stack<unsigned char> stk;
-                    Location cur = bestTarget;
-                    log << "Started = (" << cur.x << "," << cur.y << ") ";
-                    while (cur.x != loc.x || cur.y != loc.y) {
-                        stk.push(crumbs[cur]);
-                        cur = presentMap.getLocation(cur, crumbs[cur]);
-                        log << "-> (" << cur.x << "," << cur.y << ") ";
-                    }
-                    log << endl << endl;
-                    if (!stk.empty()) {
-                        bestD = opposite(stk.top());
-                    }
-                }
+                unsigned char bestD = search.dijkstra(presentMap, loc, myID);
                 
                 Location target = presentMap.getLocation(loc, bestD);
                 Site targetsite = presentMap.getSite(target);
@@ -296,10 +212,10 @@ int main() {
                     continue;
                 }
 
-/*
+
                 // Move internal strong pieces towards the boundary
-                bestD = STILL;
-                bestDist = INT_MAX;
+/*                bestD = STILL;
+                int bestDist = INT_MAX;
                 for (int D : CARDINALS) {
                     Location nloc = loc;
                     Site nsite = presentMap.getSite(nloc);

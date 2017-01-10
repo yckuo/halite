@@ -20,6 +20,9 @@ namespace hlt{
         bool operator == (const Location& loc) const {
             return x == loc.x && y == loc.y;
         }
+        bool operator != (const Location& loc) const {
+            return x != loc.x || y != loc.y;
+        }
     };
 
     struct LocationHasher {
@@ -43,6 +46,15 @@ namespace hlt{
         unsigned char strength;
         unsigned char production;
     };
+
+
+    unsigned char opposite(unsigned char D) {
+        if (D == NORTH) return SOUTH;
+        if (D == SOUTH) return NORTH;
+        if (D == WEST) return EAST;
+        if (D == EAST) return WEST;
+        return STILL;
+    }
 
     class GameMap{
     public:
