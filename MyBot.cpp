@@ -46,9 +46,10 @@ int main() {
 
     Search search(myID);
     
+    bool war = false;
     int frame = 0;
     while (true) {
-        log << "frame " << ++frame << endl;
+        //log << "frame " << ++frame << endl;
         moved.clear();
         moves.clear();
         killed.clear();
@@ -59,6 +60,7 @@ int main() {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
                 if (!search.IsBorder(presentMap, loc)) continue;
+                search.CheckWar(presentMap, loc, war);
 
                 Site site = presentMap.getSite(loc);
 
@@ -106,52 +108,60 @@ int main() {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
 
-                /*bool isBorder = false;
-                for (unsigned char D : CARDINALS) {
-                    Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(loc, D);
-                    if (nsite.owner != myID && !killed.count(nloc)) {
-                        isBorder = true;
-                    }
-                }
-                if (isBorder) continue;*/
-                if (search.IsBorder(presentMap, loc)) continue;
+                // if (search.IsBorder(presentMap, loc)) continue;
 
                 Site site = presentMap.getSite(loc);
                 if (site.owner != myID || moved.count(loc)) continue;
 
-//              if (site.strength < site.production * 5) continue;
 
+                //if (!war) {
+                //    if ((int)site.strength < (int)site.production * 10) continue;
+                //} else {
+            //        if ((rand() % 100) >= (int)site.strength) continue;
+                //}
+                //
+                if ((rand() % 100) >= (int)site.strength) continue;
 
-                bool go = false;
-                int r1 = rand() % 100, r2 = (int)site.strength;
-                if (r1 < r2) go = true;
-                if (!go) continue;
-
-                // unsigned char bestD = search.dijkstra(presentMap, loc);
-   /*             
-                Location target = presentMap.getLocation(loc, bestD);
-                Site movedite = presentMap.getSite(target);
-
-                if (bestD != STILL && movedite.owner == myID) {
-                    moves.insert({loc, bestD});
-                    moved[loc] = target;
+                int dist = 0;
+                unsigned char spread = search.spread(presentMap, loc, dist);
+                if (spread != STILL && dist > 5) {  
+                    Location target = presentMap.getLocation(loc, spread);
+                    Site targetSite = presentMap.getSite(target);
+                    if (targetSite.owner != myID) continue; // only move internally
+                    move(loc, spread, false);
                     continue;
                 }
-*/
 
-                unsigned char spread = search.spread(presentMap, loc);
-                if (spread == STILL) continue;
 
-                Location target = presentMap.getLocation(loc, spread);
-                Site targetSite = presentMap.getSite(target);
-                if (targetSite.owner != myID) continue; // only move internally
-                move(loc, spread, false);
+                unsigned char dijkstra = search.dijkstra(presentMap, loc, log);
+                if (dijkstra != STILL) {
+                    Location target = presentMap.getLocation(loc, dijkstra);
+                    Site targetSite = presentMap.getSite(target);
+                    if (targetSite.owner != myID) continue;
+
+                    for (unsigned char D : CARDINALS) {
+                        Location nloc = presentMap.getLocation(target, D);
+                        Site nsite = presentMap.getSite(nloc);
+                        if (moved.count(nloc) && moved[nloc] == target) {
+                            if (nsite.strength + site.strength > 255) continue;
+                        }
+                    }
+
+                    move(loc, dijkstra, false);
+                    continue;
+                }
+
+                if (spread != STILL) {
+                    Location target = presentMap.getLocation(loc, spread);
+                    Site targetSite = presentMap.getSite(target);
+                    if (targetSite.owner != myID) continue; // only move internally
+                    move(loc, spread, false);
+                }
                 
             }
         }
 
-        log << endl;
+        //log << endl;
 
         sendFrame(moves);
     }

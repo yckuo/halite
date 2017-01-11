@@ -67,7 +67,6 @@ namespace algorithm {
             return d1.D == NORTH || d1.D == WEST; // tie breaker
         }
 
-
         bool IsBorder(GameMap& presentMap, const Location& loc) {
             Site site = presentMap.getSite(loc);
             if (site.owner != myID) return false;
@@ -78,6 +77,16 @@ namespace algorithm {
                 if (nsite.owner != myID) ret = true;
             }
             return ret;
+        }
+
+        void CheckWar(GameMap& presentMap, const Location& loc, bool& war) {
+            Site site = presentMap.getSite(loc);
+            if (site.owner != myID) return;
+
+            for (unsigned char D : CARDINALS) {
+                Site nsite = presentMap.getSite(loc, D);
+                if (nsite.owner != myID && nsite.owner != 0) war = true;
+            }
         }
 
         vector<unsigned char> neighbors(GameMap& presentMap, const Location& loc, bool survivalOrKillable) const { 
@@ -130,7 +139,7 @@ namespace algorithm {
             return ret;
         }
 
-        unsigned char dijkstra(GameMap& presentMap, const Location& start) const {
+        unsigned char dijkstra(GameMap& presentMap, const Location& start, ofstream& log) const {
             
             // Dijkstra's algorithm
             priority_queue<LocationP, vector<LocationP>, function<bool(LocationP, LocationP)>> pq(compare);
@@ -140,7 +149,8 @@ namespace algorithm {
             costs[start] = 0;
 
             Location bestend = start;
-            int bestscore = -1;
+            float bestscore = -1;
+            int bestcost = INT_MAX;
 
             int round = 0, maxround = (presentMap.width/3)*(presentMap.width/3);
             while (!pq.empty()) {
@@ -149,19 +159,21 @@ namespace algorithm {
                 Location cur = { curp.x, curp.y };
                 Site cursite = presentMap.getSite(cur);
 
-                if (++round > maxround || curp.cost > 1000) break;
+                if (++round > maxround || curp.cost > 600) break;
 
-                int score = cursite.owner == myID ? 0 : (cursite.production - cursite.strength/10);
+                float score = cursite.owner == myID ? 0 : ((float)cursite.production);
+                if (cursite.owner != myID && cursite.owner != 0) score += 2; // real enemy;
 
-                if (score > bestscore) {
+                if (score > bestscore || score == bestscore && curp.cost < bestcost) {
                     bestscore = score;
                     bestend = cur;
+                    bestcost = curp.cost;
                 }
 
                 for (unsigned char D : CARDINALS) {
                     Location next = presentMap.getLocation(cur, D);
                     Site nextsite = presentMap.getSite(next);
-                    int cost = curp.cost + 30 + (nextsite.owner == myID ? 0 : nextsite.strength);
+                    int cost = curp.cost + 80 + (nextsite.owner == myID ? 0 : nextsite.strength);
 
                     if (!costs.count(next) || costs[next] > cost) {
                         costs[next] = cost;
@@ -172,24 +184,32 @@ namespace algorithm {
                 }
             }
 
+            // TEST:
+            if (bestscore < 4) return STILL;
+
             unsigned char ret = STILL;
             Site bestsite = presentMap.getSite(bestend);
             if (bestsite.owner != myID) {
+                
+                // log << "(" << start.x << "," << start.y << ") -> (" << bestend.x << "," << bestend.y << ")" << endl;
+                
                 Location cur = bestend;
                 while (cur != start) {
                     ret = crumbs[cur];
                     cur = presentMap.getLocation(cur, ret);
                 }
+                ret = opposite(ret);
             }
             
+            // log << "test" << endl;
             return ret;
         }
 
-        unsigned char spread(GameMap& presentMap, const Location& loc) const {
+        unsigned char spread(GameMap& presentMap, const Location& loc, int& bestDist) const {
 
             // Move internal strong pieces towards the boundary
             unsigned char ret = STILL;
-            int bestDist = INT_MAX;
+            bestDist = INT_MAX;
             for (unsigned char D : CARDINALS) {
                 Location nloc = loc;
                 Site nsite = presentMap.getSite(nloc);
