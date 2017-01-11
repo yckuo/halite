@@ -19,22 +19,23 @@ using namespace std;
 using namespace hlt;
 using namespace algorithm;
 
-const double pi = 3.1415926;
 GameMap presentMap;
 unsigned char myID;
+unordered_map<Location, Location, LocationHasher, LocationComparer> moved;
+unordered_set<Location, LocationHasher, LocationComparer> killed;
+set<Move> moves;
 
-unsigned char angle2Direction(float angle) {
-    if (angle >= 0.25 * pi && angle <= 0.75 * pi) return NORTH;
-    if (angle > 0.75 * pi || angle < -0.75 * pi) return WEST;
-    if (angle <= -0.25 * pi && angle >= -0.75 * pi) return SOUTH;
-    if (angle > -0.25 * pi && angle < 0.25 * pi) return EAST;
-    return STILL;
+void move(const Location& loc, unsigned char D, bool kill) {
+    moves.insert({loc, D});
+    Location target = presentMap.getLocation(loc, D);
+    moved[loc] = target;
+    if (kill) killed.insert(target);
 }
 
 int main() { 
     srand(time(NULL));
 
-    std::cout.sync_with_stdio(0);
+    cout.sync_with_stdio(0);
 
     ofstream log;
     log.open("log.txt");
@@ -43,72 +44,29 @@ int main() {
 
     sendInit("yckuoBot");
 
-    unordered_map<Location, Location, LocationHasher, LocationComparer> targets;
-
-    Search search;
-
-    std::set<hlt::Move> moves;
+    Search search(myID);
+    
     int frame = 0;
     while (true) {
         log << "frame " << ++frame << endl;
-        targets.clear();
-
+        moved.clear();
         moves.clear();
-
+        killed.clear();
         getFrame(presentMap);
-
-        unordered_set<Location, LocationHasher, LocationComparer> killed;
 
         // 1) Handle expansion using a single piece at a time. We look at each of the border pieces.
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
+                if (!search.IsBorder(presentMap, loc, myID)) continue;
+
                 Site site = presentMap.getSite(loc);
-                if (site.owner != myID) continue;
 
-                bool isBorder = false;
-                for (unsigned char D : CARDINALS) {
-                    Site nsite = presentMap.getSite(loc, D);
-                    if (presentMap.getSite(loc, D).owner != myID) isBorder = true;
-                }
-                if (!isBorder) continue;
+                // Find all survival neighbors sorted by production
+                vector<unsigned char> survivals = search.neighbors(presentMap, loc, true);
 
-                vector<int> dangers(5, 0), mindangers(5, 0);
-
-                for (unsigned char D : DIRECTIONS) {
-                    Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(nloc);
-
-                    if (nsite.owner != myID) {
-                        dangers[D] = (int)nsite.strength + nsite.production;
-                        mindangers[D] = (int)nsite.strength + nsite.production;
-                    }
-                    for (int D2 : CARDINALS) {
-                        Site esite = presentMap.getSite(nloc, D2);
-                        if (esite.owner != myID && esite.owner != 0) {
-                            dangers[D] += (int)esite.strength + esite.production;
-                            mindangers[D] = min(mindangers[D], (int)esite.strength + esite.production);
-                        }
-                    }
-                }
-
-                // first, find the neighbor site not owned by me, with the largest profit (could be 0), and without enemies that can kill me.
-                unsigned char bestD = STILL;
-                int bestProfit = -1;
-                for (unsigned char D : CARDINALS) {
-                    Site nsite = presentMap.getSite(loc, D);
-                    if (nsite.owner == myID || dangers[D] >= site.strength) continue;
-
-                    if (nsite.production > bestProfit) {
-                        bestProfit = nsite.production;
-                        bestD = D;
-                    }
-                }
-                if (bestD != STILL) {
-                    moves.insert({loc, bestD});
-                    Location target = presentMap.getLocation(loc, bestD);
-                    killed.insert(target);
-                    targets[loc] = target;
+                if (!survivals.empty()) {
+                    move(loc, survivals[0], true);
                     continue;
                 }
 
@@ -116,66 +74,34 @@ int main() {
 
                 // Next, try a neighbor site not owned by me, where we can kill someone, with the largest profit.
                 // Individual suicide mission.
-                bestProfit = -1;
-                for (unsigned char D : CARDINALS) {
-                    Site nsite = presentMap.getSite(loc, D);
-                    if (nsite.owner == myID || mindangers[D] > site.strength) continue;
-                    if (nsite.production > bestProfit) {
-                        bestProfit = nsite.production;
-                        bestD = D;
-                    }
-                }
-
-                if (bestD != STILL) {
-                    moves.insert({loc, bestD});
-                    Location target = presentMap.getLocation(loc, bestD);
-                    killed.insert(target); // BUG: not necessarily killed
-                    targets[loc] = target;
-                    continue;
+                vector<unsigned char> killables = search.neighbors(presentMap, loc, false);
+                
+                if (!killables.empty()) {
+                    move(loc, killables[0], true); // BUG: not necessarily killed
                 }
             }
         }
 
-        // 3) Handle expansion using multiple pieces. We look at each of the remaining enemy pieces.
+        // 2) Handle expansion using multiple pieces. We look at each of the remaining enemy pieces.
         // Multi - suicide mission
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
-
                 Site site = presentMap.getSite(loc);
-
                 if (site.owner == myID || killed.count(loc)) continue;
 
-                int sum = 0, danger = site.strength, mindanger = site.strength;
+                unordered_set<Location, LocationHasher, LocationComparer> requireds = search.requireds(presentMap, loc, moved);
                 for (unsigned char D : CARDINALS) {
                     Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(loc, D);
-                    if (nsite.owner == myID) {
-                        if (!targets.count(nloc)) sum += nsite.strength;
-                    } else {
-                        if (nsite.owner != 0) {
-                            danger += nsite.strength;
-                            mindanger = min(mindanger, (int)nsite.strength);
-                        }
-                    }
-                }
-
-                // TODO: further optimize
-                if (sum < mindanger) continue;
-                // multi suicide mission.
-
-                for (unsigned char D : CARDINALS) {
-                    Location nloc = presentMap.getLocation(loc, D);
-                    Site nsite = presentMap.getSite(nloc);
-                    if (nsite.owner == myID && !targets.count(nloc)) {
-                        moves.insert({nloc, opposite(D)});
-                        targets[nloc] = loc;
+                    if (requireds.count(nloc)) {
+                        move(nloc, opposite(D), true);
                     }
                 }
             }
         }
-
-        // 4) Look at remaining nodes. Only move internally.
+        
+        
+        // 3) Look at remaining nodes. Only move internally.
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
@@ -188,10 +114,10 @@ int main() {
                         isBorder = true;
                     }
                 }
-                //if (isBorder) continue;
+                if (isBorder) continue;
 
                 Site site = presentMap.getSite(loc);
-                if (site.owner != myID || targets.count(loc)) continue;
+                if (site.owner != myID || moved.count(loc)) continue;
 
 //              if (site.strength < site.production * 5) continue;
 
@@ -201,20 +127,20 @@ int main() {
                 if (r1 < r2) go = true;
                 if (!go) continue;
 
-                unsigned char bestD = search.dijkstra(presentMap, loc, myID);
-                
+                // unsigned char bestD = search.dijkstra(presentMap, loc);
+   /*             
                 Location target = presentMap.getLocation(loc, bestD);
-                Site targetsite = presentMap.getSite(target);
+                Site movedite = presentMap.getSite(target);
 
-                if (bestD != STILL && targetsite.owner == myID) {
+                if (bestD != STILL && movedite.owner == myID) {
                     moves.insert({loc, bestD});
-                    targets[loc] = target;
+                    moved[loc] = target;
                     continue;
                 }
-
+*/
 
                 // Move internal strong pieces towards the boundary
-/*                bestD = STILL;
+/*                unsigned char bestD = STILL;
                 int bestDist = INT_MAX;
                 for (int D : CARDINALS) {
                     Location nloc = loc;
@@ -254,12 +180,12 @@ int main() {
 
                 if (bestD == STILL) continue;
 
-                target = presentMap.getLocation(loc, bestD);
-                targetsite = presentMap.getSite(target);
+                Location target = presentMap.getLocation(loc, bestD);
+                Site targetsite = presentMap.getSite(target);
                 if (targetsite.owner != myID) continue; // only move internally
 
                 moves.insert({ loc, (unsigned char)bestD });
-                targets[loc] = target;*/
+                moved[loc] = target;*/
             }
         }
 

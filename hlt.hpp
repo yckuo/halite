@@ -47,12 +47,21 @@ namespace hlt{
         unsigned char production;
     };
 
-
     unsigned char opposite(unsigned char D) {
         if (D == NORTH) return SOUTH;
         if (D == SOUTH) return NORTH;
         if (D == WEST) return EAST;
         if (D == EAST) return WEST;
+        return STILL;
+    }
+
+    const double pi = 3.1415926;
+
+    unsigned char angle2Direction(float angle) {
+        if (angle >= 0.25 * pi && angle <= 0.75 * pi) return NORTH;
+        if (angle > 0.75 * pi || angle < -0.75 * pi) return WEST;
+        if (angle <= -0.25 * pi && angle >= -0.75 * pi) return SOUTH;
+        if (angle > -0.25 * pi && angle < 0.25 * pi) return EAST;
         return STILL;
     }
 

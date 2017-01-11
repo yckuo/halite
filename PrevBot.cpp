@@ -15,16 +15,6 @@
 using namespace std;
 using namespace hlt;
 
-const double pi = 3.1415926;
-
-unsigned char angle2Direction(float angle) {
-    if (angle >= 0.25 * pi && angle <= 0.75 * pi) return NORTH;
-    if (angle > 0.75 * pi || angle < -0.75 * pi) return WEST;
-    if (angle <= -0.25 * pi && angle >= -0.75 * pi) return SOUTH;
-    if (angle > -0.25 * pi && angle < 0.25 * pi) return EAST;
-    return STILL;
-}
-
 int main() { 
     srand(time(NULL));
 
@@ -151,7 +141,7 @@ int main() {
 
                 // Move internal strong pieces towards the boundary
                 bestD = STILL;
-                int bestDist = INT_MAX;
+                /*int bestDist = INT_MAX;
                 for (int D : CARDINALS) {
                     Location nloc = loc;
                     Site nsite = presentMap.getSite(nloc);
@@ -186,7 +176,7 @@ int main() {
                         bestDist = dist;
                         bestD = diag[rand() % 2];
                     }
-                }
+                }*/
 
                 if (bestD == STILL) continue;
 
