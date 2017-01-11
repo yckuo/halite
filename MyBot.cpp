@@ -58,7 +58,7 @@ int main() {
         for (unsigned short a = 0; a < presentMap.height; a++) {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
-                if (!search.IsBorder(presentMap, loc, myID)) continue;
+                if (!search.IsBorder(presentMap, loc)) continue;
 
                 Site site = presentMap.getSite(loc);
 
@@ -106,7 +106,7 @@ int main() {
             for (unsigned short b = 0; b < presentMap.width; b++) {
                 Location loc = { b, a };
 
-                bool isBorder = false;
+                /*bool isBorder = false;
                 for (unsigned char D : CARDINALS) {
                     Location nloc = presentMap.getLocation(loc, D);
                     Site nsite = presentMap.getSite(loc, D);
@@ -114,7 +114,8 @@ int main() {
                         isBorder = true;
                     }
                 }
-                if (isBorder) continue;
+                if (isBorder) continue;*/
+                if (search.IsBorder(presentMap, loc)) continue;
 
                 Site site = presentMap.getSite(loc);
                 if (site.owner != myID || moved.count(loc)) continue;
@@ -139,53 +140,14 @@ int main() {
                 }
 */
 
-                // Move internal strong pieces towards the boundary
-/*                unsigned char bestD = STILL;
-                int bestDist = INT_MAX;
-                for (int D : CARDINALS) {
-                    Location nloc = loc;
-                    Site nsite = presentMap.getSite(nloc);
-                    int dist = 0;
-                    while (nsite.owner == myID) {
-                        nloc = presentMap.getLocation(nloc, D);
-                        nsite = presentMap.getSite(nloc);
-                        if (++dist > presentMap.width) break;
-                    }
+                unsigned char spread = search.spread(presentMap, loc);
+                if (spread == STILL) continue;
 
-                    if (dist < bestDist || (dist == bestDist && (D == NORTH || D == WEST))) {
-                        bestDist = dist;
-                        bestD = D;
-                    }
-                }
-
-                // Diagonal
-                vector<vector<int>> diags = {{NORTH, WEST}, {WEST, SOUTH}, {SOUTH, EAST}, {EAST, NORTH}};
-                for (vector<int> diag : diags) {
-                    int dist = 0;
-                    Location nloc = loc;
-                    Site nsite = presentMap.getSite(nloc);
-                    while (nsite.owner == myID) {
-                        nloc = presentMap.getLocation(nloc, diag[0]);
-                        nloc = presentMap.getLocation(nloc, diag[1]);
-                        nsite = presentMap.getSite(nloc);
-                        dist += 2;
-                        if (dist > presentMap.width) break;
-                    }
-
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        bestD = diag[rand() % 2];
-                    }
-                }
-
-                if (bestD == STILL) continue;
-
-                Location target = presentMap.getLocation(loc, bestD);
-                Site targetsite = presentMap.getSite(target);
-                if (targetsite.owner != myID) continue; // only move internally
-
-                moves.insert({ loc, (unsigned char)bestD });
-                moved[loc] = target;*/
+                Location target = presentMap.getLocation(loc, spread);
+                Site targetSite = presentMap.getSite(target);
+                if (targetSite.owner != myID) continue; // only move internally
+                move(loc, spread, false);
+                
             }
         }
 

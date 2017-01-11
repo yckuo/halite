@@ -141,7 +141,7 @@ int main() {
 
                 // Move internal strong pieces towards the boundary
                 bestD = STILL;
-                /*int bestDist = INT_MAX;
+                int bestDist = INT_MAX;
                 for (int D : CARDINALS) {
                     Location nloc = loc;
                     Site nsite = presentMap.getSite(nloc);
@@ -176,7 +176,7 @@ int main() {
                         bestDist = dist;
                         bestD = diag[rand() % 2];
                     }
-                }*/
+                }
 
                 if (bestD == STILL) continue;
 
